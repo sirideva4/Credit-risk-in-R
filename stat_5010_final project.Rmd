@@ -1,0 +1,511 @@
+---
+title: "stat5010_final_project"
+author: Siri Devarapalli
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Credit risk is defined as the risk of loss resulting from the failure by a borrower to repay the principal and interest owed to the leader. The lender uses the interest payments from the loan to compensate for the risk of potential losses.  When the borrower defaults on his/her obligations, it causes an interruption in the cash flows of the lender.
+
+Performing credit risk analysis helps the lender determine the borrower’s ability to meet debt obligations in order to cushion itself from loss of cash flows and reduce the severity of losses. Borrowers who present a high level of credit risk are charged a high interest rate on the loan to compensate the lender for the high risk of default.
+
+
+```{r}
+library(gmodels)
+library(fastDummies)
+library(lares)
+library(car)
+```
+
+## Preprocessing
+```{r}
+data <- read.csv("C:/UCB/stat - 5010/application_train.csv/credit_risk_dataset.csv")
+```
+
+```{r}
+str(data)
+```
+
+The dataset appears to have 12 columns/variables 
+
+1. person_age - age of borrower.
+
+2. person_income - income of the borrower.
+
+3. person_home_ownership - a categorical variable which indicates whether the borrower has a home or not.
+
+4. person_emp_length - number of years the borrower has been employed.
+
+5. loan_intent - reason of taking a loan. 
+
+6. loan_grade -  a classification system that involves assigning a quality score to a loan based on a borrower's credit history, quality of the collateral, and the likelihood of repayment of the principal and interest.
+
+7. loan_amnt - The loan amount
+
+8. loan_int_rate - Interest rate of the loan
+
+9. loan_status - Loan approved or not (1 for approved loan and 0 for declined loan)
+
+10. loan_percent_income - Loan to income ratio
+
+11. cb_person_default_on_file - If the person defaulted in the past. 
+
+12. cb_person_cred_hist_length - The credit history length. 
+```{r}
+CrossTable(data$loan_status)
+```
+In the given data set 0.218 percent of the loans were approved. 
+
+## Visualisations
+```{r}
+hist_1 <- hist(data$loan_amnt, breaks = 200, xlab = "Loan amount",
+               main = "Histigram of the loan amount")
+```
+
+```{r}
+plot(x = data$person_age, y = data$person_income, xlab = "Age",
+     ylab = "Annual Income")
+```
+The person who has an annual income of 6 million is more than 140 years. This must be a mistake so we can take it out from the data along with some other outliers . All the datapoints which are greater than 120 can be taken out. 
+
+```{r}
+index_highage = which(data$person_age >120)
+data <- data[-index_highage, ]
+hist(x = data$person_age, breaks = 200, xlab = "Age ", 
+     main = "Histogram of the person age")
+```
+
+```{r}
+hist(x = data$person_age, breaks = 200, xlab = "Age ",
+     main = "Histigram of the person age")
+```
+
+```{r}
+plot(x = data$person_age, y = data$person_income, 
+     xlab = "Age", ylab = "Annual Income")
+```
+
+```{r}
+summary(data)
+```
+There are many NA values in the interest rate column. As the number of records which we might loose by deleting the records with NA values is 9.56% we can replace these values with the median interest rate. 
+
+```{r}
+na_index <- which(is.na(data$loan_int_rate))
+median_ir <- median(data$loan_int_rate, na.rm = TRUE)
+
+data$loan_int_rate[na_index] <- median_ir
+summary(data$loan_int_rate)
+```
+To evaluate categorical variables we need to create dummy variables. 
+```{r}
+data <- dummy_cols(data, select_columns = c('person_home_ownership',
+                                            'loan_intent', 'loan_grade', 'cb_person_default_on_file'),
+                   remove_first_dummy = TRUE)
+data[,c('person_home_ownership','loan_intent', 'loan_grade', 'cb_person_default_on_file')]<-list(NULL)
+summary(data)
+```
+## Modelling
+
+Split the data set into training and test data. 
+```{r}
+index_train <- sample(1:nrow(data),2 / 3 * nrow(data) )
+training_set <- data[index_train, ]
+test_set <- data[-index_train,]
+test_set <- na.omit(test_set)
+```
+
+Let us start with the full model 
+```{r}
+log_model_all <- glm(loan_status~. ,family = "binomial" ,
+                     data = training_set)
+summary(log_model_all)
+predictions_all <- predict(log_model_all, newdata = test_set, 
+                           type = "response")
+```
+
+We can find out the vif values to detect multicollinearity 
+```{r fig.width=10}
+vif_values <- vif(log_model_all)
+
+#create horizontal bar chart to display each VIF value
+barplot(vif_values, main = "VIF Values", horiz = TRUE, 
+        col = "steelblue", names = labels(vif_values), las = 1)
+
+#add vertical line at 5
+abline(v = 5, lwd = 3, lty = 2)
+```
+
+
+Remove the parameters which have high p-values
+```{r}
+log_model_multi <- glm(loan_status~person_age+loan_int_rate+
+                      loan_grade_B+loan_grade_C+loan_grade_D+
+                      loan_grade_E+loan_amnt+person_income+
+                      person_home_ownership_OWN+
+                      person_home_ownership_RENT+loan_percent_income+
+                        loan_intent_PERSONAL+loan_intent_VENTURE,
+                      family = "binomial" ,data = training_set)
+summary(log_model_multi)
+```
+
+
+Remove age as it has the highest p value
+
+```{r}
+log_model_multi_1 <- glm(loan_status~loan_int_rate+loan_grade_B+
+                      loan_grade_C+loan_grade_D+loan_grade_E+loan_amnt+
+                      person_income+person_home_ownership_OWN+
+                      person_home_ownership_RENT+loan_percent_income+
+                        loan_intent_PERSONAL+loan_intent_VENTURE ,
+                      family = "binomial" ,data = training_set)
+summary(log_model_multi_1)
+```
+
+
+Remove the predictor loan grade as it might be causing multicollinearity
+```{r}
+log_model_multi_2 <- glm(loan_status~loan_int_rate+loan_grade_B+
+                      loan_grade_C+loan_grade_E+loan_amnt+person_income+
+                      person_home_ownership_OWN+person_home_ownership_RENT+
+                        loan_percent_income+loan_intent_PERSONAL+
+                        loan_intent_VENTURE ,family = "binomial" ,
+                      data = training_set)
+summary(log_model_multi_2)
+```
+
+Remove loan grade E as it has a high p - value. It is insignificant.
+
+```{r}
+log_model_multi_3 <- glm(loan_status~loan_int_rate+loan_grade_B+
+                      loan_grade_C+loan_amnt+person_income+
+                      person_home_ownership_OWN+
+                      person_home_ownership_RENT+loan_percent_income+
+                      loan_intent_PERSONAL+loan_intent_VENTURE ,
+                      family = "binomial" ,data = training_set)
+summary(log_model_multi_3)
+```
+
+We can compare the models by using chi - square test 
+```{r}
+anova(log_model_multi,log_model_multi_1, test = "Chisq")
+```
+
+As the p-value is significant, by removing the loan grade D parameter we will reject model log_model_multi_1. 
+
+```{r}
+anova(log_model_multi,log_model_multi_2, test = "Chisq")
+```
+As removing person_age helps improve the fit over the first model we should accept log_model_multi_2. 
+
+```{r}
+anova(log_model_multi_2,log_model_multi_3, test = "Chisq")
+```
+As the p - value is significant removing the loan grade E parameter does not help improve the fit of the model. We will reject model log_model_multi_3. 
+
+log_model_multi_2 turns out to be the best model of all the others.
+
+## Predictions
+
+We will calculate predictions on the above models. The predictions will be floating numbers. Each result indicates the probability of default. But banks do not need this measure, they just want to know what percentage of the loans are supposed to be approved to make sure the risk factor does not cross the threshold imposed by the banks. So, we will assign all the values which are 0.15 can be assigned to 0 and all the values which are grater than 0.15 are assigned to 1. 
+
+```{r}
+predictions_multi <- predict(log_model_multi_1, newdata = test_set, 
+                             type = "response")
+range(predictions_multi)
+```
+
+```{r}
+pred_cutoff_15 = ifelse(predictions_multi>0.15,1,0)
+```
+
+```{r}
+tab_multi_1 <- table(test_set$loan_status,pred_cutoff_15)
+acc_multi_model <- sum(diag(tab_multi_1)) / nrow(test_set)
+acc_multi_model
+sensitivity_multi_model = tab_multi_1[2,2]/sum(tab_multi_1[2,])
+specificity_multi_model = tab_multi_1[1,1]/sum(tab_multi_1[1,])
+sensitivity_multi_model
+specificity_multi_model
+```
+
+The accuracy of the full model is 74%
+```{r}
+predictions_multi <- predict(log_model_multi_2, newdata = test_set, 
+                             type = "response")
+pred_cutoff_15 = ifelse(predictions_multi>0.15,1,0)
+tab_multi_2 <- table(test_set$loan_status,pred_cutoff_15)
+sum(diag(tab_multi_2)) / nrow(test_set)
+tab_multi_2[2,2]/sum(tab_multi_2[2,])
+tab_multi_2[1,1]/sum(tab_multi_2[1,])
+```
+
+The accuracy of the multiple regression model is 72%, sensitivity is 83%, specificity is 69%. 
+
+### Using link functions
+Generalized linear models include a link function that relates the expected value of the response to the linear predictors in the model. A link function transforms the probabilities of the levels of a categorical response variable to a continuous scale that is unbounded. Once the transformation is complete, the relationship between the predictors and the response can be modeled with linear regression. For example, a binary response variable can have two unique values. Conversion of these values to probabilities makes the response variable range from 0 to 1.
+
+#### Logit
+The purpose of the logit link is to take a linear combination of the covariate values (which may take any value between - infinity to + infinity) and convert those values to the scale of a probability, i.e., between 0 and 1.
+
+```{r}
+log_model_logit <- glm(loan_status ~ person_age+loan_int_rate + 
+                         loan_grade_B + loan_grade_C + loan_grade_E + 
+                         loan_amnt + person_income + 
+                         person_home_ownership_OWN + 
+                         person_home_ownership_RENT + 
+                         loan_percent_income + loan_intent_PERSONAL + loan_intent_VENTURE,family = binomial(link = logit), data = training_set)
+predictions_logit <- predict(log_model_logit, newdata = test_set,
+                             type = "response")
+class_pred_logit <- ifelse(predictions_logit > 0.15, 1, 0)
+tab_class_logit <- table(test_set$loan_status,class_pred_logit)
+acc_logit <- sum(diag(tab_class_logit)) / nrow(test_set)
+acc_logit
+```
+Logit model has an accuracy of 73.2%
+
+#### Probit
+Probit regression, also called a probit model, is used to model dichotomous or binary outcome variables. In the probit model, the inverse standard normal distribution of the probability is modeled as a linear combination of the predictors.
+
+```{r}
+log_model_probit <- glm(loan_status ~ loan_int_rate + loan_grade_B + 
+                          loan_grade_C + loan_grade_E + loan_amnt + 
+                          person_income + person_home_ownership_OWN + person_home_ownership_RENT + loan_percent_income + loan_intent_PERSONAL + loan_intent_VENTURE,family = binomial(link = probit), data = training_set)
+predictions_probit <- predict(log_model_probit, newdata = test_set,
+                              type = "response")
+class_pred_probit <- ifelse(predictions_probit > 0.15, 1, 0)
+tab_class_probit <- table(test_set$loan_status,class_pred_probit)
+acc_probit <- sum(diag(tab_class_probit)) / nrow(test_set)
+acc_probit
+``` 
+Probit link model has an accuracy of 71%
+
+#### Cloglog
+Probit regression, also called a probit model, is used to model dichotomous or binary outcome variables. In the probit model, the inverse standard normal distribution of the probability is modeled as a linear combination of the predictors.
+
+```{r}
+log_model_cloglog <- glm(loan_status ~ loan_int_rate + loan_grade_B + 
+                           loan_grade_C + loan_grade_E + loan_amnt + 
+                           person_income + person_home_ownership_OWN + person_home_ownership_RENT + loan_percent_income + loan_intent_PERSONAL + loan_intent_VENTURE,family = binomial(link = cloglog), 
+                         data = training_set)
+predictions_cloglog <- predict(log_model_cloglog, newdata = test_set,
+                               type = "response")
+class_pred_cloglog <- ifelse(predictions_cloglog > 0.15, 1, 0)
+tab_class_cloglog <- table(test_set$loan_status,class_pred_cloglog)
+acc_cloglog <- sum(diag(tab_class_cloglog)) / nrow(test_set)
+acc_cloglog
+``` 
+Cloglog model has an accuracy of 72.3%
+
+```{r}
+anova(log_model_multi_2,log_model_logit, test = "Chisq")
+```
+So when we compare logit model which is the best model in the above link function models with the best model in our initial analysis
+
+## Decision Trees
+Decision Trees (DTs) are a non-parametric supervised learning method used for classification and regression. The goal is to create a model that predicts the value of a target variable by learning simple decision rules inferred from the data features.
+
+```{r fig.height=8,fig.width=10}
+library(rpart)
+tree_undersample <- rpart(loan_status ~ loan_int_rate + loan_grade_B +
+                            loan_grade_C + loan_grade_E + loan_amnt + 
+                            person_income + person_home_ownership_OWN + person_home_ownership_RENT + loan_percent_income + loan_intent_PERSONAL + loan_intent_VENTURE, method = "class",data =  training_set,
+                          control = rpart.control(cp = 0.001))
+plot(tree_undersample,uniform = TRUE)
+text(tree_undersample)
+```
+
+We can have a splitting index to improve our model for classification problems. 
+```{r fig.height=8,fig.width=10}
+library(rpart)
+tree_undersample_1 <- rpart(loan_status ~ loan_int_rate + loan_grade_B +
+                              loan_grade_C + loan_grade_E + loan_amnt + 
+                              person_income + person_home_ownership_OWN + person_home_ownership_RENT + loan_percent_income + loan_intent_PERSONAL + loan_intent_VENTURE, method = "class",data =  training_set,
+                            parms = list(prior = c(.7,.3)),
+                            control = rpart.control(cp = 0.001))
+plot(tree_undersample_1,uniform = TRUE)
+text(tree_undersample_1)
+```
+
+```{r}
+plotcp(tree_undersample)
+```
+```{r}
+plotcp(tree_undersample_1)
+```
+
+Let us prune the tree to get clear understanding of the tree. 
+```{r}
+library(rpart.plot)
+index <- which.min(tree_undersample$cptable[ , "xerror"])
+tree_min <- tree_undersample$cptable[index, "CP"]
+ptree_undersample <- prune(tree_undersample, cp = tree_min)
+prp(ptree_undersample,extra =1)
+```
+
+```{r}
+index <- which.min(tree_undersample_1$cptable[ , "xerror"])
+tree_min <- tree_undersample_1$cptable[index, "CP"]
+ptree_undersample_1 <- prune(tree_undersample_1, cp = tree_min)
+prp(ptree_undersample_1,extra =1)
+```
+
+We can predct the test set to find the acuracy of the ecision trees. 
+```{r}
+pred_undersample <- predict(ptree_undersample, newdata = test_set, 
+                            type = "class")
+pred_undersample_1 <- predict(ptree_undersample_1, newdata = test_set, 
+                              type = "class")
+
+confmat_undersample <- table(test_set$loan_status, pred_undersample)
+confmat_undersample_1 <- table(test_set$loan_status, pred_undersample_1)
+
+acc_undersample <- sum(diag(confmat_undersample)) / nrow(test_set)
+acc_undersample_1 <- sum(diag(confmat_undersample_1)) / nrow(test_set)
+
+acc_undersample
+acc_undersample_1
+```
+The undersampletree_1 has a higher accuracy. Now, we can find the bad_rate which is the percentage of accounts that perform in an unsatisfactory manner as defined by the good/bad definition that was used in the scorecard development.
+
+```{r}
+prob_default_undersample <- predict(ptree_undersample_1, 
+                                    newdata = test_set)[ ,2]
+cutoff_undersample = quantile(prob_default_undersample, 
+                              probs = 0.8)
+bin_pred_us_80 <- ifelse(prob_default_undersample > cutoff_undersample,
+                         1, 0)
+accepted_status_us_80 <- test_set$loan_status[bin_pred_us_80 == 0]
+bad_rate <- sum(accepted_status_us_80)/length(accepted_status_us_80)
+
+bad_rate
+```
+We can calculate the acceptance rates abd bad rates for all probabilities 
+```{r}
+strategy_bank <- function(prob_of_def){
+cutoff=rep(NA, 21)
+bad_rate=rep(NA, 21)
+accept_rate=seq(1,0,by=-0.05)
+for (i in 1:21){
+  cutoff[i]=quantile(prob_of_def,accept_rate[i])
+  pred_i=ifelse(prob_of_def> cutoff[i], 1, 0)
+  pred_as_good=test_set$loan_status[pred_i==0]
+  bad_rate[i]=sum(pred_as_good)/length(pred_as_good)}
+table=cbind(accept_rate,cutoff=round(cutoff,4),bad_rate=round(bad_rate,4))
+return(list(table=table,bad_rate=bad_rate, accept_rate=accept_rate, cutoff=cutoff))
+}
+```
+
+```{r}
+strategy_undersample <- strategy_bank(prob_default_undersample)
+strategy_undersample$table
+par(mfrow = c(1,2))
+plot(strategy_undersample$accept_rate, strategy_undersample$bad_rate, 
+     type = "l", xlab = "Acceptance rate", ylab = "Bad rate", 
+     lwd = 2, main = "Decision tree")
+```
+If 80% of all loan applications are accepted then 5% of them will default.
+
+```{r}
+strategy_logit <- strategy_bank(predictions_logit)
+strategy_logit$table
+par(mfrow = c(1,2))
+plot(strategy_logit$accept_rate, strategy_logit$bad_rate, 
+     type = "l", xlab = "Acceptance rate", ylab = "Bad rate", 
+     lwd = 2, main = "logistic regression")
+```
+The logit model predicts that 5% of the loans will be defaulted if 45% of all loans are accepted. 
+
+We can compare all the link models and undersample_1 decision tree at once using the criteria of area under the curve. 
+
+```{r}
+library(pROC)
+ROC_logit <- roc(test_set$loan_status, predictions_logit)
+ROC_probit <- roc(test_set$loan_status, predictions_probit)
+ROC_cloglog <-roc(test_set$loan_status, predictions_cloglog)
+ROC_tree <-roc(test_set$loan_status, prob_default_undersample)
+```
+
+```{r}
+plot(ROC_logit)
+lines(ROC_probit, col="blue")
+lines(ROC_cloglog, col="red")
+lines(ROC_tree,col = "green")
+```
+```{r}
+auc(ROC_logit)
+auc(ROC_probit)
+auc(ROC_cloglog)
+auc(ROC_tree)
+```
+Logit regression has the highest area under the curve so it is the best model here.
+
+## GAM's
+ GAM is an additive modeling technique where the impact of the predictive variables is captured through smooth functions which—depending on the underlying patterns in the data—can be nonlinear. GAM's are used for interpretability, flexibility and regularization. 
+
+```{r}
+library(mgcv)
+gam_mod<- gam(loan_status ~ s(loan_int_rate)+ s(loan_amnt) + 
+                          s(person_income)+s(loan_percent_income)+
+                s(person_emp_length), data = training_set, na.rm =TRUE)
+plot(gam_mod, pages = 1, trans = plogis,shift = coef(gam_mod)[1], seWithMean = TRUE)
+summary(gam_mod)
+```
+The plots show how each variable is related to the response variable (loan_status). We apply the plogis transformation to get model the data into 0-1 bound as we have a binary response variable. We can find predictions using the model.  
+
+```{r}
+test_set <- na.omit(test_set)
+test_predict <- predict(gam_mod, type="terms",newdata = test_set, se.fit = TRUE)
+high_pred <- test_predict$fit + 2*test_predict$se.fit
+low_pred <- test_predict$fit - 2*test_predict$se.fit
+high_prob <- plogis(high_pred)
+low_prob <- plogis(low_pred)
+head(high_prob)
+head(low_prob)
+```
+
+So, the percentage of income which has to be used from income is the most influential factor. Additional analysis can be done using gams but due to time constraint I couldnt explore GAMS in detail. But we will continue to surivival analysis. 
+
+## Survival analysis
+Survival analysis is modelling of the time to death. But survival analysis has a much broader use in statistics. Any event can be defined as death. For example, age for marriage, time for the customer to buy his first product after visiting the website for the first time, time to attrition of an employee etc. All can be modeled as survival analysis. In this project we will use survival analysis to find out when each person would default based on their credit history. For this project we can define death as the time for the customer to default. 
+
+```{r}
+library(survival)
+library(survminer)
+```
+
+```{r}
+kmsurv <- survfit(Surv(training_set$cb_person_cred_hist_length,
+                       training_set$cb_person_default_on_file_Y ) ~ 1)
+summary(kmsurv)
+plot(kmsurv,xlab = "span",ylab="Survival Proabability",xaxp = c(0, 30,30))
+```
+
+Facts about the population :
+
+1. All customers who have a credit history of less than 2 years (age of customers would be 20) do not default at all.
+
+2. 59% of the population has gone into debt by the age of 32 (14 years of credit history)
+
+3. 31% of the population survives even after 30 years of credit history (around 48 years)
+
+
+## References
+
+1. campus.datacamp.com
+2. noamross.github.io
+3. cran.r-project.org
+4. ideas.repec.org
+5. www.programmingr.com
+6. stackoverflow.com (for errors)
+7. www.sthda.com
+8. www.r-bloggers.com
+9. stats.stackexchange.com
+10. www.analyticsvidhya.com
+11. www.analyticsvidhya.com
